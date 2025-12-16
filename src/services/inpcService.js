@@ -340,7 +340,7 @@ function findLastMonthlyColumn(worksheet, startCol, endCol) {
 /**
  * Aplica o índice INPC na Planilha A preservando formatação
  * @param {Object} workbook - Workbook da planilha A
- * @param {Number} inpcValue - Valor do índice INPC (ex: 0.52 para 0,52%)
+ * @param {Number} inpcValue - Valor do índice INPC como multiplicador direto (ex: 1.0003 para formato 1,00030000)
  * @param {String} monthYear - Mês/Ano no formato YYYY-MM
  * @returns {Object} - Workbook atualizado
  */
@@ -451,10 +451,11 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
       t: 's'
     };
     
-    // Calcular multiplicador do INPC: novoValor = valorAnterior * (1 + inpcValue/100)
-    // Exemplo: se INPC = 0.5%, multiplicador = 1.005
-    const multiplier = 1 + (validInpcValue / 100);
-    console.log(`Multiplicador INPC aplicado: ${multiplier} (${validInpcValue}%)`);
+    // Calcular multiplicador do INPC: usar o valor diretamente como multiplicador
+    // Exemplo: se INPC = 1,00030000, após parseFloat fica 1.0003, e esse é o multiplicador direto
+    // O valor já vem como multiplicador (formato 1,00030000), não como porcentagem
+    const multiplier = validInpcValue;
+    console.log(`Multiplicador INPC aplicado: ${multiplier} (valor direto)`);
     
     // Preencher as 3 novas colunas baseadas nas 3 colunas de referência do ÚLTIMO mês gerado
     for (let row = 1; row <= range.e.r; row++) {
@@ -472,7 +473,8 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
         const value2 = parseFloat(refCell2?.v) || 0;
         const value3 = parseFloat(refCell3?.v) || 0;
         
-        // Aplicar cálculo do INPC: novoValor = valorAnterior * (1 + inpcValue/100)
+        // Aplicar cálculo do INPC: novoValor = valorAnterior * multiplicador
+        // O multiplicador já é o valor direto (ex: 1.0003)
         const newValue1 = value1 * multiplier;
         const newValue2 = value2 * multiplier;
         const newValue3 = value3 * multiplier;
@@ -639,118 +641,408 @@ function findColumnsDE_DF_DG(headers) {
 }
 
 /**
+ * Encontra as 3 colunas DE, DF, DG do último mês gerado na Planilha B
+ * Procura por colunas que contenham o padrão de mês/ano nos headers
+ * @param {Object} worksheet - Worksheet
+ * @param {Number} startCol - Coluna inicial para busca
+ * @param {Number} endCol - Coluna final para busca
+ * @returns {Object|null} - { col1, col2, col3, monthName, monthIndex, year } ou null se não encontrar
+ */
+function findLastDE_DF_DGColumns(worksheet, startCol, endCol) {
+  try {
+    const meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 
+                   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+    
+    let lastFoundCols = null;
+    let lastDateValue = null;
+    
+    // Padrão para encontrar colunas DE, DF, DG que contenham mês/ano
+    // Vamos procurar por headers que contenham o padrão de mês e ano
+    const monthYearPattern = /(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\/\d{4}/i;
+    
+    if (startCol < 0 || endCol < 0 || startCol > endCol) {
+      return null;
+    }
+    
+    // Procurar pelas 3 colunas DE, DF, DG em sequência que tenham mês/ano no header
+    for (let col = startCol; col <= endCol - 2; col++) {
+      try {
+        const headerRef1 = XLSX.utils.encode_cell({ r: 0, c: col });
+        const headerRef2 = XLSX.utils.encode_cell({ r: 0, c: col + 1 });
+        const headerRef3 = XLSX.utils.encode_cell({ r: 0, c: col + 2 });
+        
+        const headerCell1 = worksheet[headerRef1];
+        const headerCell2 = worksheet[headerRef2];
+        const headerCell3 = worksheet[headerRef3];
+        
+        if (headerCell1 && headerCell1.v && headerCell2 && headerCell2.v && headerCell3 && headerCell3.v) {
+          const headerValue1 = String(headerCell1.v).trim();
+          const headerValue2 = String(headerCell2.v).trim();
+          const headerValue3 = String(headerCell3.v).trim();
+          
+          // Verificar se todas as 3 colunas contêm o padrão de mês/ano
+          const match1 = headerValue1.match(monthYearPattern);
+          const match2 = headerValue2.match(monthYearPattern);
+          const match3 = headerValue3.match(monthYearPattern);
+          
+          if (match1 && match2 && match3) {
+            // Extrair mês e ano da primeira coluna
+            const fullMatch = match1[0].toLowerCase();
+            const parts = fullMatch.split('/');
+            const monthName = parts[0];
+            const year = parseInt(parts[1], 10);
+            const monthIndex = meses.findIndex(m => m === monthName);
+            
+            // Verificar se todas as 3 colunas têm o mesmo mês/ano
+            const match2Full = match2[0].toLowerCase();
+            const match3Full = match3[0].toLowerCase();
+            
+            if (monthIndex !== -1 && match2Full === fullMatch && match3Full === fullMatch) {
+              // Calcular valor numérico da data para comparação (ano * 12 + mês)
+              const dateValue = year * 12 + monthIndex;
+              
+              // Se é mais recente que o último encontrado, atualizar
+              if (lastDateValue === null || dateValue > lastDateValue) {
+                lastDateValue = dateValue;
+                lastFoundCols = {
+                  col1: col,
+                  col2: col + 1,
+                  col3: col + 2,
+                  monthName: monthName,
+                  monthIndex: monthIndex,
+                  year: year
+                };
+              }
+            }
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    
+    return lastFoundCols;
+  } catch (error) {
+    console.warn('Erro ao encontrar colunas DE, DF, DG:', error);
+    return null;
+  }
+}
+
+/**
  * Aplica o índice INPC na Planilha B preservando formatação
  * @param {Object} workbook - Workbook da planilha B
- * @param {Number} inpcValue - Valor do índice INPC
+ * @param {Number} inpcValue - Valor do índice INPC como multiplicador direto (ex: 1.0003 para formato 1,00030000)
  * @param {String} monthYear - Mês/Ano no formato YYYY-MM
  * @returns {Object} - Workbook atualizado
  */
 export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
-  const indexSheetName = findIndexSheet(workbook);
-  const worksheet = workbook.Sheets[indexSheetName];
-  
-  if (!worksheet['!ref']) {
-    throw new Error('Aba de índice está vazia');
-  }
-  
-  const range = XLSX.utils.decode_range(worksheet['!ref']);
-  const { de, df, dg } = findColumnsDE_DF_DG([]);
-  
-  // Encontrar coluna de índice INPC (geralmente primeira coluna ou coluna com "INPC" no header)
-  let inpcCol = 0;
-  for (let c = 0; c <= range.e.c; c++) {
-    const headerRef = XLSX.utils.encode_cell({ r: 0, c });
-    const headerCell = worksheet[headerRef];
-    if (headerCell && headerCell.v) {
-      const headerValue = headerCell.v.toString().toLowerCase();
-      if (headerValue.includes('inpc') || headerValue.includes('índice')) {
-        inpcCol = c;
-        break;
+  try {
+    const indexSheetName = findIndexSheet(workbook);
+    const worksheet = workbook.Sheets[indexSheetName];
+    
+    if (!worksheet['!ref']) {
+      throw new Error('Aba de índice está vazia');
+    }
+    
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    const { de, df, dg } = findColumnsDE_DF_DG([]);
+    
+    // Encontrar coluna de índice INPC (geralmente primeira coluna ou coluna com "INPC" no header)
+    let inpcCol = 0;
+    for (let c = 0; c <= range.e.c; c++) {
+      const headerRef = XLSX.utils.encode_cell({ r: 0, c });
+      const headerCell = worksheet[headerRef];
+      if (headerCell && headerCell.v) {
+        const headerValue = headerCell.v.toString().toLowerCase();
+        if (headerValue.includes('inpc') || headerValue.includes('índice')) {
+          inpcCol = c;
+          break;
+        }
       }
     }
-  }
-  
-  // Atualizar valores
-  for (let row = 1; row <= range.e.r; row++) {
-    const inpcCellRef = XLSX.utils.encode_cell({ r: row, c: inpcCol });
-    const inpcCell = worksheet[inpcCellRef];
     
-    if (inpcCell) {
-      inpcCell.v = inpcValue;
-      inpcCell.t = 'n';
-    }
+    // Encontrar a última coluna mensal gerada (formato "mês/ano")
+    const lastMonthlyCol = findLastMonthlyColumn(worksheet, inpcCol + 1, range.e.c);
     
-    // Recalcular DE, DF, DG
-    const baseValue = parseFloat(inpcValue) || 0;
+    // Determinar coluna de referência: última mensal gerada ou INPC se não houver nenhuma
+    const referenceCol = lastMonthlyCol !== null ? lastMonthlyCol : inpcCol;
     
-    const deCellRef = XLSX.utils.encode_cell({ r: row, c: de });
-    const dfCellRef = XLSX.utils.encode_cell({ r: row, c: df });
-    const dgCellRef = XLSX.utils.encode_cell({ r: row, c: dg });
+    // Encontrar as 3 colunas DE, DF, DG do último mês gerado (ANTES de criar nova coluna mensal)
+    const lastDE_DF_DGCols = findLastDE_DF_DGColumns(worksheet, 0, range.e.c);
     
-    if (worksheet[deCellRef]) {
-      worksheet[deCellRef].v = baseValue * 1.0;
-      worksheet[deCellRef].t = 'n';
-    }
+    // Criar nova coluna mensal
+    const [year, month] = monthYear.split('-');
+    const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleString('pt-BR', { month: 'long' });
+    const newColumnName = `${monthName}/${year}`;
     
-    if (worksheet[dfCellRef]) {
-      worksheet[dfCellRef].v = baseValue * 1.0;
-      worksheet[dfCellRef].t = 'n';
-    }
+    const newMonthlyCol = range.e.c + 1;
     
-    if (worksheet[dgCellRef]) {
-      worksheet[dgCellRef].v = baseValue * 1.0;
-      worksheet[dgCellRef].t = 'n';
-    }
-  }
-  
-  // Criar nova coluna mensal preservando formatação
-  const [year, month] = monthYear.split('-');
-  const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleString('pt-BR', { month: 'long' });
-  const newColumnName = `${monthName}/${year}`;
-  
-  const lastCol = range.e.c + 1;
-  
-  // Adicionar header
-  const headerRef = XLSX.utils.encode_cell({ r: 0, c: lastCol });
-  worksheet[headerRef] = {
-    v: newColumnName,
-    t: 's'
-  };
-  
-  // Preencher nova coluna
-  for (let row = 1; row <= range.e.r; row++) {
-    const newCellRef = XLSX.utils.encode_cell({ r: row, c: lastCol });
-    const refCellForStyle = XLSX.utils.encode_cell({ r: row, c: inpcCol });
-    const refCell = worksheet[refCellForStyle];
-    
-    worksheet[newCellRef] = {
-      v: inpcValue,
-      t: 'n',
-      z: refCell?.z || '#,##0.00'
+    // Adicionar header da nova coluna mensal
+    const headerRef = XLSX.utils.encode_cell({ r: 0, c: newMonthlyCol });
+    worksheet[headerRef] = {
+      v: newColumnName,
+      t: 's'
     };
-  }
-  
-  // Atualizar range
-  range.e.c = lastCol;
-  worksheet['!ref'] = XLSX.utils.encode_range(range);
-  
-  // Preservar larguras de colunas
-  if (worksheet['!cols']) {
-    const refColWidth = worksheet['!cols'][inpcCol]?.w || 12;
-    if (!worksheet['!cols'][lastCol]) {
-      worksheet['!cols'][lastCol] = { w: refColWidth };
+    
+    // Preencher nova coluna mensal com valores
+    for (let row = 1; row <= range.e.r; row++) {
+      const newCellRef = XLSX.utils.encode_cell({ r: row, c: newMonthlyCol });
+      const refCell = worksheet[XLSX.utils.encode_cell({ r: row, c: referenceCol })];
+      
+      worksheet[newCellRef] = {
+        v: inpcValue,
+        t: 'n',
+        z: refCell?.z || '#,##0.00'
+      };
     }
-  } else {
-    worksheet['!cols'] = [];
-    worksheet['!cols'][lastCol] = { w: 12 };
-  }
-  
-  // Preservar alturas de linhas se existirem
-  if (worksheet['!rows']) {
-    // Manter alturas existentes
-  }
+    
+    // Atualizar range temporariamente para incluir a nova coluna mensal
+    range.e.c = newMonthlyCol;
+    
+    // Validar e garantir que o valor do INPC está correto
+    const inpcValueParsed = parseFloat(inpcValue);
+    if (isNaN(inpcValueParsed) || inpcValueParsed < 0) {
+      console.warn(`Valor do INPC inválido: ${inpcValue}. Usando 0 como padrão.`);
+    }
+    const validInpcValue = isNaN(inpcValueParsed) ? 0 : inpcValueParsed;
+    
+    // Se encontrou as 3 colunas DE, DF, DG, criar 3 novas colunas logo após elas
+    if (lastDE_DF_DGCols) {
+      console.log(`Encontradas colunas DE, DF, DG do último mês: ${lastDE_DF_DGCols.monthName}/${lastDE_DF_DGCols.year} (colunas ${lastDE_DF_DGCols.col1}, ${lastDE_DF_DGCols.col2}, ${lastDE_DF_DGCols.col3})`);
+      console.log(`Criando novas colunas para: ${monthName}/${year} com INPC de ${validInpcValue}`);
+      
+      // Inserir as 3 novas colunas logo após a última coluna DE, DF, DG
+      const insertColIndex = lastDE_DF_DGCols.col3 + 1;
+      
+      // Mover colunas existentes para a direita para abrir espaço (incluindo a coluna mensal se necessário)
+      for (let r = 0; r <= range.e.r; r++) {
+        for (let c = range.e.c; c >= insertColIndex; c--) {
+          const currentCellRef = XLSX.utils.encode_cell({ r: r, c: c });
+          const newCellRef = XLSX.utils.encode_cell({ r: r, c: c + 3 }); // Mover 3 posições
+          if (worksheet[currentCellRef]) {
+            worksheet[newCellRef] = worksheet[currentCellRef];
+            delete worksheet[currentCellRef];
+          }
+        }
+      }
+      // Ajustar range da planilha para refletir as colunas movidas
+      range.e.c += 3;
+      
+      // Se a coluna mensal estava depois do ponto de inserção, ajustar sua posição
+      if (newMonthlyCol >= insertColIndex) {
+        // A coluna mensal foi movida, então sua nova posição é newMonthlyCol + 3
+        // Mas não precisamos fazer nada aqui, pois já foi movida no loop acima
+      }
+      
+      const newDECol = insertColIndex;
+      const newDFCol = insertColIndex + 1;
+      const newDGCol = insertColIndex + 2;
+      
+      // Obter os títulos originais e substituir o mês
+      const headerRef1 = XLSX.utils.encode_cell({ r: 0, c: lastDE_DF_DGCols.col1 });
+      const headerRef2 = XLSX.utils.encode_cell({ r: 0, c: lastDE_DF_DGCols.col2 });
+      const headerRef3 = XLSX.utils.encode_cell({ r: 0, c: lastDE_DF_DGCols.col3 });
+      
+      const originalHeader1 = String(worksheet[headerRef1]?.v || '');
+      const originalHeader2 = String(worksheet[headerRef2]?.v || '');
+      const originalHeader3 = String(worksheet[headerRef3]?.v || '');
+      
+      // Substituir o mês antigo pelo novo mês (capitalizado)
+      const newMonthNameCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+      const mesesAntigosCapitalized = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                                       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+      
+      let newHeader1 = originalHeader1;
+      let newHeader2 = originalHeader2;
+      let newHeader3 = originalHeader3;
+      
+      // Substituir todos os meses antigos pelo novo mês
+      mesesAntigosCapitalized.forEach((mesAntigo) => {
+        const regex = new RegExp(mesAntigo, 'gi');
+        newHeader1 = newHeader1.replace(regex, newMonthNameCapitalized);
+        newHeader2 = newHeader2.replace(regex, newMonthNameCapitalized);
+        newHeader3 = newHeader3.replace(regex, newMonthNameCapitalized);
+      });
+      
+      // Substituir também o padrão mês/ano
+      const oldMonthYearPattern = new RegExp(`${lastDE_DF_DGCols.monthName}/${lastDE_DF_DGCols.year}`, 'gi');
+      const newMonthYear = `${newMonthNameCapitalized}/${year}`;
+      newHeader1 = newHeader1.replace(oldMonthYearPattern, newMonthYear);
+      newHeader2 = newHeader2.replace(oldMonthYearPattern, newMonthYear);
+      newHeader3 = newHeader3.replace(oldMonthYearPattern, newMonthYear);
+      
+      // Adicionar headers das novas colunas DE, DF, DG
+      worksheet[XLSX.utils.encode_cell({ r: 0, c: newDECol })] = {
+        v: newHeader1,
+        t: 's'
+      };
+      worksheet[XLSX.utils.encode_cell({ r: 0, c: newDFCol })] = {
+        v: newHeader2,
+        t: 's'
+      };
+      worksheet[XLSX.utils.encode_cell({ r: 0, c: newDGCol })] = {
+        v: newHeader3,
+        t: 's'
+      };
+      
+      // Calcular multiplicador do INPC: usar o valor diretamente como multiplicador
+      const multiplier = validInpcValue;
+      console.log(`Multiplicador INPC aplicado: ${multiplier} (valor direto)`);
+      
+      // Preencher as 3 novas colunas baseadas nas 3 colunas de referência do ÚLTIMO mês gerado
+      for (let row = 1; row <= range.e.r; row++) {
+        try {
+          const refCell1Ref = XLSX.utils.encode_cell({ r: row, c: lastDE_DF_DGCols.col1 });
+          const refCell2Ref = XLSX.utils.encode_cell({ r: row, c: lastDE_DF_DGCols.col2 });
+          const refCell3Ref = XLSX.utils.encode_cell({ r: row, c: lastDE_DF_DGCols.col3 });
+          
+          const refCell1 = worksheet[refCell1Ref];
+          const refCell2 = worksheet[refCell2Ref];
+          const refCell3 = worksheet[refCell3Ref];
+          
+          // Obter valores do ÚLTIMO mês gerado (ex: outubro se estamos gerando novembro)
+          const value1 = parseFloat(refCell1?.v) || 0;
+          const value2 = parseFloat(refCell2?.v) || 0;
+          const value3 = parseFloat(refCell3?.v) || 0;
+          
+          // Aplicar cálculo do INPC: novoValor = valorAnterior * multiplicador
+          const newValue1 = value1 * multiplier;
+          const newValue2 = value2 * multiplier;
+          const newValue3 = value3 * multiplier;
+          
+          worksheet[XLSX.utils.encode_cell({ r: row, c: newDECol })] = {
+            v: newValue1,
+            t: 'n',
+            z: refCell1?.z || '#,##0.00'
+          };
+          
+          worksheet[XLSX.utils.encode_cell({ r: row, c: newDFCol })] = {
+            v: newValue2,
+            t: 'n',
+            z: refCell2?.z || '#,##0.00'
+          };
+          
+          worksheet[XLSX.utils.encode_cell({ r: row, c: newDGCol })] = {
+            v: newValue3,
+            t: 'n',
+            z: refCell3?.z || '#,##0.00'
+          };
+        } catch (rowError) {
+          console.warn(`Erro ao processar linha ${row} das colunas DE, DF, DG:`, rowError);
+          continue;
+        }
+      }
+      
+      // Atualizar range temporariamente para incluir as novas colunas DE, DF, DG
+      range.e.c = Math.max(range.e.c, newDGCol);
+    } else {
+      console.log('Nenhuma coluna DE, DF, DG anterior encontrada. Pulando criação de novas colunas DE, DF, DG.');
+    }
+    
+    // Criar 3 novas colunas para DE, DF, DG do novo mês (sempre no final se não encontrou anteriores)
+    const currentLastCol = range.e.c;
+    const newDEColFinal = currentLastCol + 1;
+    const newDFColFinal = currentLastCol + 2;
+    const newDGColFinal = currentLastCol + 3;
+    
+    // Só criar se não encontrou colunas anteriores
+    if (!lastDE_DF_DGCols) {
+      // Adicionar headers das colunas DE, DF, DG
+      worksheet[XLSX.utils.encode_cell({ r: 0, c: newDEColFinal })] = {
+        v: `DE ${newColumnName}`,
+        t: 's'
+      };
+      worksheet[XLSX.utils.encode_cell({ r: 0, c: newDFColFinal })] = {
+        v: `DF ${newColumnName}`,
+        t: 's'
+      };
+      worksheet[XLSX.utils.encode_cell({ r: 0, c: newDGColFinal })] = {
+        v: `DG ${newColumnName}`,
+        t: 's'
+      };
+      
+      // Preencher DE, DF, DG baseados na última coluna mensal gerada
+      for (let row = 1; row <= range.e.r; row++) {
+        try {
+          const refCellRef = XLSX.utils.encode_cell({ r: row, c: referenceCol });
+          const refCell = worksheet[refCellRef];
+          const refValue = parseFloat(refCell?.v) || 0;
+          
+          // Calcular DE, DF, DG baseado no valor da última coluna mensal
+          const deValue = refValue * 1.0;
+          const dfValue = refValue * 1.0;
+          const dgValue = refValue * 1.0;
+          
+          worksheet[XLSX.utils.encode_cell({ r: row, c: newDEColFinal })] = {
+            v: deValue,
+            t: 'n',
+            z: refCell?.z || '#,##0.00'
+          };
+          
+          worksheet[XLSX.utils.encode_cell({ r: row, c: newDFColFinal })] = {
+            v: dfValue,
+            t: 'n',
+            z: refCell?.z || '#,##0.00'
+          };
+          
+          worksheet[XLSX.utils.encode_cell({ r: row, c: newDGColFinal })] = {
+            v: dgValue,
+            t: 'n',
+            z: refCell?.z || '#,##0.00'
+          };
+        } catch (rowError) {
+          console.warn(`Erro ao processar linha ${row}:`, rowError);
+          continue;
+        }
+      }
+      
+      // Atualizar range final incluindo todas as novas colunas
+      range.e.c = newDGColFinal;
+    }
+    
+    // Atualizar range final incluindo todas as novas colunas
+    range.e.c = Math.max(range.e.c, newMonthlyCol);
+    worksheet['!ref'] = XLSX.utils.encode_range(range);
+    
+    // Preservar larguras de colunas
+    if (worksheet['!cols']) {
+      const refColWidth = worksheet['!cols'][referenceCol]?.w || 12;
+      const colsToSet = [newMonthlyCol];
+      
+      // Se criou as colunas DE, DF, DG, adicionar também
+      if (lastDE_DF_DGCols) {
+        colsToSet.push(lastDE_DF_DGCols.col3 + 1, lastDE_DF_DGCols.col3 + 2, lastDE_DF_DGCols.col3 + 3);
+      } else {
+        colsToSet.push(newDEColFinal, newDFColFinal, newDGColFinal);
+      }
+      
+      colsToSet.forEach(col => {
+        if (!worksheet['!cols'][col]) {
+          worksheet['!cols'][col] = { w: refColWidth };
+        }
+      });
+    } else {
+      worksheet['!cols'] = [];
+      const refColWidth = 12;
+      const colsToSet = [newMonthlyCol];
+      
+      // Se criou as colunas DE, DF, DG, adicionar também
+      if (lastDE_DF_DGCols) {
+        colsToSet.push(lastDE_DF_DGCols.col3 + 1, lastDE_DF_DGCols.col3 + 2, lastDE_DF_DGCols.col3 + 3);
+      } else {
+        colsToSet.push(newDEColFinal, newDFColFinal, newDGColFinal);
+      }
+      
+      colsToSet.forEach(col => {
+        worksheet['!cols'][col] = { w: refColWidth };
+      });
+    }
 
-  return workbook;
+    return workbook;
+  } catch (error) {
+    console.error('Erro ao aplicar INPC na Planilha B:', error);
+    throw new Error(`Erro ao processar Planilha B: ${error.message}`);
+  }
 }
 
 /**
@@ -914,7 +1206,7 @@ export async function verifyProcessNumber(planilhaAFile, planilhaBFile, processN
  * Processa ambas as planilhas com o índice INPC
  * @param {File} planilhaAFile - Arquivo da planilha A
  * @param {File} planilhaBFile - Arquivo da planilha B
- * @param {Number} inpcValue - Valor do índice INPC
+ * @param {Number} inpcValue - Valor do índice INPC como multiplicador direto (ex: 1.0003 para formato 1,00030000)
  * @param {String} monthYear - Mês/Ano no formato YYYY-MM
  * @returns {Promise<Object>} - { planilhaA: Blob, planilhaB: Blob }
  */

@@ -286,3 +286,4 @@ export function convertTextToPDF(text, filename = 'identificacao_credito.pdf') {
 
 
 
+

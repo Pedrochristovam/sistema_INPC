@@ -96,3 +96,4 @@ export async function salvarCredito(data, generatedText) {
 
 
 
+
