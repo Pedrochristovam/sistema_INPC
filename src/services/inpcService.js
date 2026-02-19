@@ -436,6 +436,12 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
       newHeader2 = newHeader2.replace(regex, newMonthNameCapitalized);
       newHeader3 = newHeader3.replace(regex, newMonthNameCapitalized);
     });
+
+    // Atualizar o ano para o mês/ano informado (corrige regressão de ano)
+    const yearRegex = /\d{4}/g;
+    newHeader1 = newHeader1.replace(yearRegex, year);
+    newHeader2 = newHeader2.replace(yearRegex, year);
+    newHeader3 = newHeader3.replace(yearRegex, year);
     
     // Adicionar headers das novas colunas VALOR ESTIMADO
     worksheet[XLSX.utils.encode_cell({ r: 0, c: newValorCol1 })] = {
@@ -703,15 +709,18 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
     }
   }
   
+  // Identificar última coluna mensal existente (padrão "mês/ano") para inserir logo após
+  const lastMonthlyCol = findLastMonthlyColumn(worksheet, 0, range.e.c);
+
   // Criar nova coluna mensal preservando formatação
   const [year, month] = monthYear.split('-');
   const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleString('pt-BR', { month: 'long' });
   const newColumnName = `${monthName}/${year}`;
   
-  const lastCol = range.e.c + 1;
+  const newMonthlyCol = lastMonthlyCol !== null ? lastMonthlyCol + 1 : range.e.c + 1;
   
   // Adicionar header
-  const headerRef = XLSX.utils.encode_cell({ r: 0, c: lastCol });
+  const headerRef = XLSX.utils.encode_cell({ r: 0, c: newMonthlyCol });
   worksheet[headerRef] = {
     v: newColumnName,
     t: 's'
@@ -719,8 +728,8 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
   
   // Preencher nova coluna
   for (let row = 1; row <= range.e.r; row++) {
-    const newCellRef = XLSX.utils.encode_cell({ r: row, c: lastCol });
-    const refCellForStyle = XLSX.utils.encode_cell({ r: row, c: inpcCol });
+    const newCellRef = XLSX.utils.encode_cell({ r: row, c: newMonthlyCol });
+    const refCellForStyle = XLSX.utils.encode_cell({ r: row, c: lastMonthlyCol !== null ? lastMonthlyCol : inpcCol });
     const refCell = worksheet[refCellForStyle];
     
     worksheet[newCellRef] = {
@@ -731,18 +740,18 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
   }
   
   // Atualizar range
-  range.e.c = lastCol;
+  range.e.c = Math.max(range.e.c, newMonthlyCol);
   worksheet['!ref'] = XLSX.utils.encode_range(range);
   
   // Preservar larguras de colunas
   if (worksheet['!cols']) {
     const refColWidth = worksheet['!cols'][inpcCol]?.w || 12;
-    if (!worksheet['!cols'][lastCol]) {
-      worksheet['!cols'][lastCol] = { w: refColWidth };
+    if (!worksheet['!cols'][newMonthlyCol]) {
+      worksheet['!cols'][newMonthlyCol] = { w: refColWidth };
     }
   } else {
     worksheet['!cols'] = [];
-    worksheet['!cols'][lastCol] = { w: 12 };
+    worksheet['!cols'][newMonthlyCol] = { w: 12 };
   }
   
   // Preservar alturas de linhas se existirem
