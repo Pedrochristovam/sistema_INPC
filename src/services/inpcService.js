@@ -346,6 +346,16 @@ function findLastMonthlyColumn(worksheet, startCol, endCol) {
  */
 export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
   try {
+    const mesesPt = [
+      'janeiro','fevereiro','março','abril','maio','junho',
+      'julho','agosto','setembro','outubro','novembro','dezembro'
+    ];
+    const [year, month] = monthYear.split('-');
+    const monthIndex = Math.max(0, Math.min(11, parseInt(month, 10) - 1));
+    const monthName = mesesPt[monthIndex];
+    const monthNameCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+    const newColumnName = `${monthName}/${year}`;
+
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     
@@ -366,10 +376,6 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
     const referenceCol = lastMonthlyCol !== null ? lastMonthlyCol : ejCol;
   
   // Criar nova coluna mensal
-  const [year, month] = monthYear.split('-');
-  const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleString('pt-BR', { month: 'long' });
-  const newColumnName = `${monthName}/${year}`;
-  
   const newMonthlyCol = range.e.c + 1;
   
   // Adicionar header da nova coluna mensal
@@ -421,7 +427,7 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
     const originalHeader3 = String(worksheet[headerRef3]?.v || '');
     
     // Substituir o mês antigo pelo novo mês (capitalizado)
-    const newMonthNameCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+    const newMonthNameCapitalized = monthNameCapitalized;
     const mesesAntigosCapitalized = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                                      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
     
@@ -652,6 +658,10 @@ function findColumnsDE_DF_DG(headers) {
  * @returns {Object} - Workbook atualizado
  */
 export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
+  const mesesPt = [
+    'janeiro','fevereiro','março','abril','maio','junho',
+    'julho','agosto','setembro','outubro','novembro','dezembro'
+  ];
   const indexSheetName = findIndexSheet(workbook);
   const worksheet = workbook.Sheets[indexSheetName];
   
@@ -709,15 +719,18 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
     }
   }
   
-  // Identificar última coluna mensal existente (padrão "mês/ano") para inserir logo após
+  // Identificar última coluna mensal existente (padrão "mês/ano") para inserir logo após.
+  // Para evitar sobrescrever colunas que venham depois, se houver colunas após a última mensal,
+  // vamos sempre adicionar no final do range.
   const lastMonthlyCol = findLastMonthlyColumn(worksheet, 0, range.e.c);
 
   // Criar nova coluna mensal preservando formatação
   const [year, month] = monthYear.split('-');
-  const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleString('pt-BR', { month: 'long' });
+  const monthIndex = Math.max(0, Math.min(11, parseInt(month, 10) - 1));
+  const monthName = mesesPt[monthIndex];
   const newColumnName = `${monthName}/${year}`;
   
-  const newMonthlyCol = lastMonthlyCol !== null ? lastMonthlyCol + 1 : range.e.c + 1;
+  const newMonthlyCol = range.e.c + 1;
   
   // Adicionar header
   const headerRef = XLSX.utils.encode_cell({ r: 0, c: newMonthlyCol });
@@ -729,7 +742,8 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
   // Preencher nova coluna
   for (let row = 1; row <= range.e.r; row++) {
     const newCellRef = XLSX.utils.encode_cell({ r: row, c: newMonthlyCol });
-    const refCellForStyle = XLSX.utils.encode_cell({ r: row, c: lastMonthlyCol !== null ? lastMonthlyCol : inpcCol });
+    const refForStyleCol = lastMonthlyCol !== null ? lastMonthlyCol : inpcCol;
+    const refCellForStyle = XLSX.utils.encode_cell({ r: row, c: refForStyleCol });
     const refCell = worksheet[refCellForStyle];
     
     worksheet[newCellRef] = {
