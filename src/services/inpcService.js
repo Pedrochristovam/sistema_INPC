@@ -15,6 +15,7 @@ export function validatePlanilhaA(workbook) {
 
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+  const range = XLSX.utils.decode_range(firstSheet['!ref'] || 'A1');
 
   if (data.length === 0) {
     errors.push('Planilha está vazia');
@@ -23,10 +24,10 @@ export function validatePlanilhaA(workbook) {
 
   // Verificar se existe coluna EJ (coluna 135 em base 0)
   const headers = data[0] || [];
-  const hasColumnEJ = headers.length > 134 || headers.some((h, i) => {
-    const colLetter = XLSX.utils.encode_col(i);
-    return colLetter === 'EJ';
-  });
+  // Se a planilha possui ao menos 135 colunas (0..134) pelo range, aceitar mesmo que o header esteja vazio
+  const hasColumnEJByRange = range.e.c >= 134;
+  const hasColumnEJByHeader = headers.some((_, i) => XLSX.utils.encode_col(i) === 'EJ');
+  const hasColumnEJ = hasColumnEJByRange || hasColumnEJByHeader;
 
   if (!hasColumnEJ) {
     errors.push('Coluna EJ não encontrada na planilha A');
