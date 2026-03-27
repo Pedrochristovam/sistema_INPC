@@ -115,13 +115,11 @@ export function createDownloadUrl(blob, filename) {
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
-    
-    // Remover link após um pequeno delay
-    setTimeout(() => {
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }, 100);
-    
+
+    // Remover o elemento, mas manter a URL ativa para downloads subsequentes
+    // (por ex., quando salvamos a URL no histórico/localStorage).
+    document.body.removeChild(link);
+
     return url;
   } catch (error) {
     console.error('Erro ao criar URL de download:', error);

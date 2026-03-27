@@ -117,28 +117,28 @@ export default function INPCUpdate() {
         className="mb-8"
       >
         <div className="flex items-center gap-4 mb-3">
-          <div className="w-12 h-12 bg-gradient-to-br from-sky-500 to-indigo-500 rounded-xl flex items-center justify-center shadow-lg shadow-sky-800/30">
+          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
             <Calculator className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-white">Atualização INPC</h1>
-            <p className="text-sm text-slate-300 mt-1">Processamento de Planilhas A e B</p>
+            <h1 className="text-2xl font-bold text-slate-900">Atualização INPC</h1>
+            <p className="text-sm text-slate-600 mt-1">Processamento de Planilhas A e B</p>
           </div>
         </div>
       </motion.div>
 
       <Tabs defaultValue="update" className="space-y-6">
-        <TabsList className="bg-white/5 border border-slate-800 p-1.5 rounded-lg h-auto">
+        <TabsList className="bg-white border border-slate-200 p-1.5 rounded-lg h-auto">
           <TabsTrigger
             value="update"
-            className="data-[state=active]:bg-white data-[state=active]:text-slate-900 rounded-md px-6 py-2.5 text-sm font-medium text-slate-200"
+            className="data-[state=active]:bg-blue-600 data-[state=active]:text-white rounded-md px-6 py-2.5 text-sm font-medium"
           >
             <Calculator className="w-4 h-4 mr-2" />
             Nova Atualização
           </TabsTrigger>
           <TabsTrigger
             value="history"
-            className="data-[state=active]:bg-white data-[state=active]:text-slate-900 rounded-md px-6 py-2.5 text-sm font-medium text-slate-200"
+            className="data-[state=active]:bg-blue-600 data-[state=active]:text-white rounded-md px-6 py-2.5 text-sm font-medium"
           >
             <History className="w-4 h-4 mr-2" />
             Histórico
@@ -146,10 +146,10 @@ export default function INPCUpdate() {
         </TabsList>
 
         <TabsContent value="update" className="space-y-6">
-          <Card className="border border-slate-800 bg-white/5 backdrop-blur shadow-xl shadow-slate-900/30">
-            <CardHeader className="bg-gradient-to-r from-sky-500 to-indigo-600 text-white p-6 border-b border-white/10">
+          <Card className="border border-slate-200 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6">
               <CardTitle className="text-xl font-semibold">Processar Atualização</CardTitle>
-              <p className="text-slate-100 text-sm mt-2 opacity-90">Informe o índice INPC e faça upload das planilhas para processamento</p>
+              <p className="text-blue-50 text-sm mt-2">Informe o índice INPC e faça upload das planilhas para processamento</p>
             </CardHeader>
             <CardContent className="p-8">
               <INPCForm onSubmit={handleSubmit} isProcessing={isProcessing} />
@@ -186,7 +186,7 @@ export default function INPCUpdate() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                 >
-                  <Alert variant="destructive" className="mt-6 border border-red-400/40 bg-red-50/10 text-red-100">
+                  <Alert variant="destructive" className="mt-6">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription className="font-medium">{error}</AlertDescription>
                   </Alert>
@@ -246,10 +246,10 @@ export default function INPCUpdate() {
         </TabsContent>
 
         <TabsContent value="history" className="space-y-6">
-          <Card className="border border-slate-800 bg-white/5 backdrop-blur shadow-xl shadow-slate-900/30">
-            <CardHeader className="bg-slate-900 text-white p-6 border-b border-white/5">
+          <Card className="border border-slate-200 shadow-lg">
+            <CardHeader className="bg-slate-700 text-white p-6">
               <CardTitle className="text-xl font-semibold">Histórico de Atualizações</CardTitle>
-              <p className="text-slate-200 text-sm mt-2">Todas as atualizações INPC realizadas</p>
+              <p className="text-slate-300 text-sm mt-2">Todas as atualizações INPC realizadas</p>
             </CardHeader>
             <CardContent className="p-6">
               <INPCHistory updates={updates || []} isLoading={isLoading} />

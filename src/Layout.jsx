@@ -11,32 +11,29 @@ const Layout = ({ children }) => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+    <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-slate-900/80 backdrop-blur border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <Link to="/" className="flex items-center gap-3 group">
-              <div className="w-10 h-10 bg-gradient-to-br from-sky-500 to-indigo-500 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform shadow-lg shadow-sky-700/30">
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/60">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <Link to="/" className="flex items-center gap-2 group">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform">
                 <Calculator className="w-5 h-5 text-white" />
               </div>
-              <div className="flex flex-col leading-tight">
-                <span className="text-base font-semibold text-white">Sistema INPC</span>
-                <span className="text-xs text-slate-300">Gestão de índices e histórico</span>
-              </div>
+              <span className="text-lg font-semibold text-slate-900">Sistema INPC</span>
             </Link>
 
-            <nav className="flex items-center gap-2">
+            <nav className="flex items-center gap-1">
               {navItems.map((item) => {
                 const isActive = location.pathname === item.path;
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all border ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                       isActive
-                        ? 'bg-white text-slate-900 border-white shadow-md shadow-sky-500/20'
-                        : 'border-slate-700 text-slate-200 hover:border-slate-500 hover:text-white'
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                     }`}
                   >
                     <item.icon className="w-4 h-4" />
@@ -50,7 +47,7 @@ const Layout = ({ children }) => {
       </header>
 
       {/* Main Content */}
-      <main className="pb-10">
+      <main className="pb-8">
         {children}
       </main>
     </div>
