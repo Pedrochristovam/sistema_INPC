@@ -27,7 +27,27 @@ export function validatePlanilhaA(workbook) {
   // Se a planilha possui ao menos 135 colunas (0..134) pelo range, aceitar mesmo que o header esteja vazio
   const hasColumnEJByRange = range.e.c >= 134;
   const hasColumnEJByHeader = headers.some((_, i) => XLSX.utils.encode_col(i) === 'EJ');
-  const hasColumnEJ = hasColumnEJByRange || hasColumnEJByHeader;
+
+  // Fallback: inspecionar endereços de células para detectar a maior coluna usada
+  const cellAddresses = Object.keys(firstSheet).filter((k) => /^[A-Z]+[0-9]+$/i.test(k));
+  const maxColFromCells = cellAddresses.reduce((max, addr) => {
+    try {
+      const { c } = XLSX.utils.decode_cell(addr);
+      return Math.max(max, c);
+    } catch {
+      return max;
+    }
+  }, -1);
+  const hasColumnEJByCells = cellAddresses.some((addr) => {
+    try {
+      const { c } = XLSX.utils.decode_cell(addr);
+      return c === 134;
+    } catch {
+      return false;
+    }
+  });
+
+  const hasColumnEJ = hasColumnEJByRange || hasColumnEJByHeader || maxColFromCells >= 134 || hasColumnEJByCells;
 
   if (!hasColumnEJ) {
     errors.push('Coluna EJ não encontrada na planilha A');
