@@ -10,7 +10,7 @@ export default function INPCHistory({ updates, isLoading }) {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-20 bg-slate-100 rounded-xl animate-pulse" />
+          <div key={i} className="h-20 bg-slate-800 rounded-xl animate-pulse" />
         ))}
       </div>
     );
@@ -19,10 +19,10 @@ export default function INPCHistory({ updates, isLoading }) {
   if (!updates || updates.length === 0) {
     return (
       <div className="text-center py-12">
-        <div className="w-16 h-16 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-          <FileSpreadsheet className="w-8 h-8 text-slate-400" />
+        <div className="w-16 h-16 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-4">
+          <FileSpreadsheet className="w-8 h-8 text-slate-300" />
         </div>
-        <p className="text-sm text-slate-500">Nenhuma atualização realizada ainda</p>
+        <p className="text-sm text-slate-300">Nenhuma atualização realizada ainda</p>
       </div>
     );
   }
@@ -41,11 +41,11 @@ export default function INPCHistory({ updates, isLoading }) {
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed':
-        return 'bg-emerald-50 border-emerald-200';
+        return 'bg-emerald-500/10 border-emerald-400/40';
       case 'error':
-        return 'bg-red-50 border-red-200';
+        return 'bg-red-500/10 border-red-400/40';
       default:
-        return 'bg-amber-50 border-amber-200';
+        return 'bg-amber-500/10 border-amber-400/40';
     }
   };
 
@@ -57,7 +57,7 @@ export default function INPCHistory({ updates, isLoading }) {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: index * 0.03 }}
-          className={`p-4 rounded-xl border ${getStatusColor(update.status)} hover:shadow-md transition-shadow`}
+          className={`p-4 rounded-xl border ${getStatusColor(update.status)} hover:shadow-xl transition-shadow`}
         >
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -65,13 +65,13 @@ export default function INPCHistory({ updates, isLoading }) {
                 {getStatusIcon(update.status)}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-slate-800 text-base mb-1">
+                <p className="font-semibold text-white text-base mb-1">
                   {update.month_year}
                 </p>
-                <p className="text-sm text-slate-600 mb-2">
+                <p className="text-sm text-slate-200 mb-2">
                   INPC: {update.inpc_value?.toFixed(2).replace('.', ',')}%
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-400">
                   {format(new Date(update.created_date), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
                 </p>
               </div>
