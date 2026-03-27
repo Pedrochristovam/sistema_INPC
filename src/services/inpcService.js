@@ -13,44 +13,47 @@ export function validatePlanilhaA(workbook) {
     return { isValid: false, errors };
   }
 
-  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-  const range = XLSX.utils.decode_range(firstSheet['!ref'] || 'A1');
+  // Verifica todas as abas e aprova se QUALQUER aba tiver a coluna EJ (coluna 134 base 0)
+  const sheetHasEJ = (sheet) => {
+    const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
 
-  if (data.length === 0) {
-    errors.push('Planilha está vazia');
-    return { isValid: false, errors };
-  }
+    // Se planilha vazia, não valida por essa aba
+    if (data.length === 0) return false;
 
-  // Verificar se existe coluna EJ (coluna 135 em base 0)
-  const headers = data[0] || [];
-  // Se a planilha possui ao menos 135 colunas (0..134) pelo range, aceitar mesmo que o header esteja vazio
-  const hasColumnEJByRange = range.e.c >= 134;
-  const hasColumnEJByHeader = headers.some((_, i) => XLSX.utils.encode_col(i) === 'EJ');
+    const headers = data[0] || [];
+    const hasColumnEJByRange = range.e.c >= 134; // 0-based
+    const hasColumnEJByHeader = headers.some((_, i) => XLSX.utils.encode_col(i).toUpperCase() === 'EJ');
 
-  // Fallback: inspecionar endereços de células para detectar a maior coluna usada
-  const cellAddresses = Object.keys(firstSheet).filter((k) => /^[A-Z]+[0-9]+$/i.test(k));
-  const maxColFromCells = cellAddresses.reduce((max, addr) => {
-    try {
-      const { c } = XLSX.utils.decode_cell(addr);
-      return Math.max(max, c);
-    } catch {
-      return max;
-    }
-  }, -1);
-  const hasColumnEJByCells = cellAddresses.some((addr) => {
-    try {
-      const { c } = XLSX.utils.decode_cell(addr);
-      return c === 134;
-    } catch {
-      return false;
-    }
+    // Fallback: inspecionar endereços de células
+    const cellAddresses = Object.keys(sheet).filter((k) => /^[A-Z]+[0-9]+$/i.test(k));
+    const maxColFromCells = cellAddresses.reduce((max, addr) => {
+      try {
+        const { c } = XLSX.utils.decode_cell(addr);
+        return Math.max(max, c);
+      } catch {
+        return max;
+      }
+    }, -1);
+    const hasColumnEJByCells = cellAddresses.some((addr) => {
+      try {
+        const { c } = XLSX.utils.decode_cell(addr);
+        return c === 134;
+      } catch {
+        return false;
+      }
+    });
+
+    return hasColumnEJByRange || hasColumnEJByHeader || maxColFromCells >= 134 || hasColumnEJByCells;
+  };
+
+  const foundEJ = workbook.SheetNames.some((name) => {
+    const sheet = workbook.Sheets[name];
+    return sheetHasEJ(sheet);
   });
 
-  const hasColumnEJ = hasColumnEJByRange || hasColumnEJByHeader || maxColFromCells >= 134 || hasColumnEJByCells;
-
-  if (!hasColumnEJ) {
-    errors.push('Coluna EJ não encontrada na planilha A');
+  if (!foundEJ) {
+    errors.push('Coluna EJ não encontrada na planilha A (verifique se a aba possui ao menos 135 colunas)');
   }
 
   return {
