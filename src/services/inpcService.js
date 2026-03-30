@@ -450,28 +450,17 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
     const originalHeader2 = String(worksheet[headerRef2]?.v || '');
     const originalHeader3 = String(worksheet[headerRef3]?.v || '');
     
-    // Substituir o mês antigo pelo novo mês (capitalizado)
-    const newMonthNameCapitalized = monthNameCapitalized;
-    const mesesAntigosCapitalized = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-                                     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-    
-    let newHeader1 = originalHeader1;
-    let newHeader2 = originalHeader2;
-    let newHeader3 = originalHeader3;
-    
-    // Substituir todos os meses antigos pelo novo mês
-    mesesAntigosCapitalized.forEach((mesAntigo) => {
-      const regex = new RegExp(mesAntigo, 'gi');
-      newHeader1 = newHeader1.replace(regex, newMonthNameCapitalized);
-      newHeader2 = newHeader2.replace(regex, newMonthNameCapitalized);
-      newHeader3 = newHeader3.replace(regex, newMonthNameCapitalized);
-    });
+    // Ajustar SOMENTE o trecho "DE <MÊS> DE <ANO>" para o mês/ano informado.
+    // Isso evita alterar outros números do cabeçalho (ex.: "18.002/2009") e elimina regressão de ano.
+    const newMonthUpper = monthNameCapitalized.toUpperCase();
+    const replaceMonthYear = (header) => {
+      const pattern = /DE\\s+(JANEIRO|FEVEREIRO|MARÇO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)\\s+DE\\s+(\\d{4})/gi;
+      return String(header || '').replace(pattern, `DE ${newMonthUpper} DE ${year}`);
+    };
 
-    // Atualizar o ano para o mês/ano informado (corrige regressão de ano)
-    const yearRegex = /\d{4}/g;
-    newHeader1 = newHeader1.replace(yearRegex, year);
-    newHeader2 = newHeader2.replace(yearRegex, year);
-    newHeader3 = newHeader3.replace(yearRegex, year);
+    const newHeader1 = replaceMonthYear(originalHeader1);
+    const newHeader2 = replaceMonthYear(originalHeader2);
+    const newHeader3 = replaceMonthYear(originalHeader3);
     
     // Adicionar headers das novas colunas VALOR ESTIMADO
     worksheet[XLSX.utils.encode_cell({ r: 0, c: newValorCol1 })] = {
@@ -743,34 +732,42 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
     }
   }
   
-  // Identificar última coluna mensal existente (padrão "mês/ano") para inserir logo após.
-  // Para evitar sobrescrever colunas que venham depois, se houver colunas após a última mensal,
-  // vamos sempre adicionar no final do range.
+  // Atualizar (ou criar) a coluna mensal do mês/ano solicitado.
+  // Se a coluna já existir, atualiza nela; senão, cria uma nova no final.
   const lastMonthlyCol = findLastMonthlyColumn(worksheet, 0, range.e.c);
 
-  // Criar nova coluna mensal preservando formatação
   const [year, month] = monthYear.split('-');
   const monthIndex = Math.max(0, Math.min(11, parseInt(month, 10) - 1));
   const monthName = mesesPt[monthIndex];
-  const newColumnName = `${monthName}/${year}`;
-  
-  const newMonthlyCol = range.e.c + 1;
-  
-  // Adicionar header
-  const headerRef = XLSX.utils.encode_cell({ r: 0, c: newMonthlyCol });
-  worksheet[headerRef] = {
-    v: newColumnName,
-    t: 's'
-  };
-  
-  // Preencher nova coluna
+  const monthYearLabel = `${monthName}/${year}`;
+
+  let targetMonthlyCol = null;
+  for (let c = 0; c <= range.e.c; c++) {
+    const headerRef = XLSX.utils.encode_cell({ r: 0, c });
+    const headerCell = worksheet[headerRef];
+    if (!headerCell || headerCell.v == null) continue;
+    const headerValue = String(headerCell.v).trim().toLowerCase();
+    if (headerValue === monthYearLabel.toLowerCase()) {
+      targetMonthlyCol = c;
+      break;
+    }
+  }
+
+  const isNewMonthlyCol = targetMonthlyCol === null;
+  if (isNewMonthlyCol) {
+    targetMonthlyCol = range.e.c + 1;
+    const newHeaderRef = XLSX.utils.encode_cell({ r: 0, c: targetMonthlyCol });
+    worksheet[newHeaderRef] = { v: monthYearLabel, t: 's' };
+  }
+
+  // Preencher/atualizar a coluna do mês/ano alvo
   for (let row = 1; row <= range.e.r; row++) {
-    const newCellRef = XLSX.utils.encode_cell({ r: row, c: newMonthlyCol });
-    const refForStyleCol = lastMonthlyCol !== null ? lastMonthlyCol : inpcCol;
-    const refCellForStyle = XLSX.utils.encode_cell({ r: row, c: refForStyleCol });
-    const refCell = worksheet[refCellForStyle];
-    
-    worksheet[newCellRef] = {
+    const cellRef = XLSX.utils.encode_cell({ r: row, c: targetMonthlyCol });
+    const styleRefCol = lastMonthlyCol !== null ? lastMonthlyCol : inpcCol;
+    const styleRef = XLSX.utils.encode_cell({ r: row, c: styleRefCol });
+    const refCell = worksheet[styleRef];
+
+    worksheet[cellRef] = {
       v: inpcValue,
       t: 'n',
       z: refCell?.z || '#,##0.00'
@@ -778,18 +775,18 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
   }
   
   // Atualizar range
-  range.e.c = Math.max(range.e.c, newMonthlyCol);
+  range.e.c = Math.max(range.e.c, targetMonthlyCol);
   worksheet['!ref'] = XLSX.utils.encode_range(range);
   
   // Preservar larguras de colunas
   if (worksheet['!cols']) {
     const refColWidth = worksheet['!cols'][inpcCol]?.w || 12;
-    if (!worksheet['!cols'][newMonthlyCol]) {
-      worksheet['!cols'][newMonthlyCol] = { w: refColWidth };
+    if (!worksheet['!cols'][targetMonthlyCol]) {
+      worksheet['!cols'][targetMonthlyCol] = { w: refColWidth };
     }
   } else {
     worksheet['!cols'] = [];
-    worksheet['!cols'][newMonthlyCol] = { w: 12 };
+    worksheet['!cols'][targetMonthlyCol] = { w: 12 };
   }
   
   // Preservar alturas de linhas se existirem
