@@ -11,6 +11,58 @@ const COL_DR = XLSX.utils.decode_col('DR');
 const COL_DS = XLSX.utils.decode_col('DS');
 
 /**
+ * Normaliza texto/ número digitado (ex.: 0001,0005000 ou 1.234,56) para float.
+ */
+export function parseInpcInput(value) {
+  if (value == null || value === '') return NaN;
+  if (typeof value === 'number' && !Number.isNaN(value)) return value;
+  let s = String(value).trim().replace(/\s/g, '');
+  if (!s) return NaN;
+
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  if (lastComma !== -1 && lastDot !== -1) {
+    if (lastComma > lastDot) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      s = s.replace(/,/g, '');
+    }
+  } else if (lastComma !== -1) {
+    s = s.replace(',', '.');
+  }
+
+  const n = parseFloat(s);
+  return Number.isNaN(n) ? NaN : n;
+}
+
+/** Índice ≥ 1 (ex.: 1,00390000) = multiplicador direto; &lt; 1 = percentual (ex.: 0,52 → 1 + 0,52/100) */
+export function multiplierFromInpc(parsed) {
+  if (parsed == null || Number.isNaN(parsed)) return 1;
+  if (parsed >= 1) return parsed;
+  return 1 + parsed / 100;
+}
+
+function parseCellAsNumber(cell) {
+  if (!cell || cell.v == null || cell.v === '') return 0;
+  if (typeof cell.v === 'number' && !Number.isNaN(cell.v)) return cell.v;
+  const n = parseInpcInput(String(cell.v));
+  return Number.isNaN(n) ? 0 : n;
+}
+
+/** Linha do cabeçalho onde BI contém o título VALOR ESTIMADO (0–5); senão 0 */
+function findValorEstimadoHeaderRow(worksheet, range) {
+  const maxScan = Math.min(5, range.e.r);
+  for (let r = 0; r <= maxScan; r++) {
+    const ref = XLSX.utils.encode_cell({ r, c: COL_BI });
+    const v = worksheet[ref]?.v;
+    if (v != null && String(v).toLowerCase().includes('valor estimado')) {
+      return r;
+    }
+  }
+  return 0;
+}
+
+/**
  * Valida a estrutura da planilha A
  * @param {Object} workbook - Workbook do XLSX
  * @returns {Object} - { isValid, errors }
@@ -398,13 +450,16 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
 
     let range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
 
-    const inpcValueParsed = parseFloat(inpcValue);
-    const validInpcValue = isNaN(inpcValueParsed) || inpcValueParsed < 0 ? 0 : inpcValueParsed;
-    const multiplier = 1 + (validInpcValue / 100);
+    const inpcValueParsed = parseInpcInput(inpcValue);
+    const multiplier = multiplierFromInpc(
+      Number.isNaN(inpcValueParsed) || inpcValueParsed < 0 ? 1 : inpcValueParsed
+    );
 
-    const headerBI = XLSX.utils.encode_cell({ r: 0, c: COL_BI });
-    const headerBJ = XLSX.utils.encode_cell({ r: 0, c: COL_BJ });
-    const headerBK = XLSX.utils.encode_cell({ r: 0, c: COL_BK });
+    const headerRow = findValorEstimadoHeaderRow(worksheet, range);
+
+    const headerBI = XLSX.utils.encode_cell({ r: headerRow, c: COL_BI });
+    const headerBJ = XLSX.utils.encode_cell({ r: headerRow, c: COL_BJ });
+    const headerBK = XLSX.utils.encode_cell({ r: headerRow, c: COL_BK });
 
     const originalHeader1 = String(worksheet[headerBI]?.v || '');
     const originalHeader2 = String(worksheet[headerBJ]?.v || '');
@@ -414,19 +469,20 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
     const newHeader2 = buildValorEstimadoHeaderForMonth(originalHeader2, monthUpper, year);
     const newHeader3 = buildValorEstimadoHeaderForMonth(originalHeader3, monthUpper, year);
 
+    // Sempre três colunas novas imediatamente após BK (BL, BM, BN), sem alterar BI/BJ/BK
     const newCol1 = COL_BK + 1;
     const newCol2 = COL_BK + 2;
     const newCol3 = COL_BK + 3;
 
-    worksheet[XLSX.utils.encode_cell({ r: 0, c: newCol1 })] = { v: newHeader1, t: 's' };
-    worksheet[XLSX.utils.encode_cell({ r: 0, c: newCol2 })] = { v: newHeader2, t: 's' };
-    worksheet[XLSX.utils.encode_cell({ r: 0, c: newCol3 })] = { v: newHeader3, t: 's' };
+    worksheet[XLSX.utils.encode_cell({ r: headerRow, c: newCol1 })] = { v: newHeader1, t: 's' };
+    worksheet[XLSX.utils.encode_cell({ r: headerRow, c: newCol2 })] = { v: newHeader2, t: 's' };
+    worksheet[XLSX.utils.encode_cell({ r: headerRow, c: newCol3 })] = { v: newHeader3, t: 's' };
 
     const v1 = [];
     const v2 = [];
     const v3 = [];
 
-    for (let row = 1; row <= range.e.r; row++) {
+    for (let row = headerRow + 1; row <= range.e.r; row++) {
       const ref1 = XLSX.utils.encode_cell({ r: row, c: COL_BI });
       const ref2 = XLSX.utils.encode_cell({ r: row, c: COL_BJ });
       const ref3 = XLSX.utils.encode_cell({ r: row, c: COL_BK });
@@ -434,9 +490,9 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
       const c2 = worksheet[ref2];
       const c3 = worksheet[ref3];
 
-      const val1 = parseFloat(c1?.v) || 0;
-      const val2 = parseFloat(c2?.v) || 0;
-      const val3 = parseFloat(c3?.v) || 0;
+      const val1 = parseCellAsNumber(c1);
+      const val2 = parseCellAsNumber(c2);
+      const val3 = parseCellAsNumber(c3);
 
       const nv1 = val1 * multiplier;
       const nv2 = val2 * multiplier;

@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Calendar, Percent, Loader2, FileSpreadsheet, FileText } from 'lucide-react';
 import FileUploadZone from '../ui/FileUploadZone';
 import { motion } from 'framer-motion';
+import { parseInpcInput } from '@/services/inpcService';
 
 export default function INPCForm({ onSubmit, isProcessing }) {
   const [inpcValue, setInpcValue] = useState('');
@@ -20,8 +21,13 @@ export default function INPCForm({ onSubmit, isProcessing }) {
       return;
     }
 
+    const idx = parseInpcInput(inpcValue);
+    if (Number.isNaN(idx)) {
+      return;
+    }
+
     onSubmit({
-      inpcValue: parseFloat(inpcValue.replace(',', '.')),
+      inpcValue: idx,
       monthYear,
       processNumber: processNumber.trim(),
       planilhaA: planilhaA[0],

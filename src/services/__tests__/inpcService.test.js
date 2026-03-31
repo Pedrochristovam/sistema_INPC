@@ -8,11 +8,23 @@ import {
   validatePlanilhaB,
   applyINPCPlanilhaA,
   applyINPCPlanilhaB,
-  processarPlanilhasINPC
+  processarPlanilhasINPC,
+  parseInpcInput,
+  multiplierFromInpc
 } from '../inpcService';
 import * as XLSX from 'xlsx';
 
 describe('INPC Service', () => {
+  describe('parseInpcInput / multiplierFromInpc', () => {
+    it('interpreta formato BR com zeros e vírgula decimal', () => {
+      expect(parseInpcInput('0001,0005000')).toBeCloseTo(1.0005, 6);
+      expect(multiplierFromInpc(1.0005)).toBeCloseTo(1.0005, 6);
+    });
+    it('percentual menor que 1 vira fator 1 + p/100', () => {
+      expect(multiplierFromInpc(0.52)).toBeCloseTo(1.0052, 6);
+    });
+  });
+
   describe('validatePlanilhaA', () => {
     it('deve validar planilha A com estrutura correta', () => {
       const workbook = XLSX.utils.book_new();
