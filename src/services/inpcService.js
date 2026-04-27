@@ -172,15 +172,11 @@ export function validatePlanilhaB(workbook) {
     return { isValid: false, errors };
   }
 
-  // Verificar se existe aba "Índice Mensal INPC"
-  const hasIndexSheet = workbook.SheetNames.some(name => 
-    name.toLowerCase().includes('índice') || 
-    name.toLowerCase().includes('indice') ||
-    name.toLowerCase().includes('inpc')
-  );
+  // Mesmas regras da Planilha A: precisa ter BI/BJ/BK em alguma aba
+  const found = workbook.SheetNames.some((name) => sheetHasBI_BK(workbook.Sheets[name]));
 
-  if (!hasIndexSheet) {
-    errors.push('Aba "Índice Mensal INPC" não encontrada na planilha B');
+  if (!found) {
+    errors.push('Planilha B deve conter as colunas de referência BI, BJ e BK (range até a coluna BK)');
   }
 
   return {
@@ -628,28 +624,18 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
  * @param {Object} workbook - Workbook da planilha B
  * @returns {String} - Nome da aba encontrada
  */
-function findIndexSheet(workbook) {
-  if (!workbook.SheetNames?.length) return null;
-  const strip = (s) =>
-    String(s)
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
-  let best = null;
-  let bestScore = -1;
-  for (const name of workbook.SheetNames) {
-    const n = strip(name);
-    let score = 0;
-    if (n.includes('indice') && n.includes('mensal')) score += 6;
-    else if (n.includes('indice')) score += 2;
-    if (n.includes('mensal')) score += 1;
-    if (n.includes('inpc')) score += 2;
-    if (score > bestScore) {
-      bestScore = score;
-      best = name;
-    }
+function findPlanilhaBMainSheetName(workbook) {
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    return null;
   }
-  return bestScore > 0 ? best : workbook.SheetNames[0];
+  const candidates = workbook.SheetNames.filter((name) => sheetHasBI_BK(workbook.Sheets[name]));
+  if (candidates.length === 0) return workbook.SheetNames[0];
+
+  const preferred = candidates.find((name) => {
+    const n = name.toLowerCase();
+    return n.includes('mapeamento') || /^planilha\s*b\b/.test(n) || n.includes('planilha b');
+  });
+  return preferred || candidates[0];
 }
 
 /**
@@ -679,145 +665,107 @@ function findColumnsDE_DF_DG(headers) {
  * Aplica valores na Planilha B: aba "Índice Mensal INPC", colunas DQ/DR/DS com os resultados da Planilha A.
  * @param {Object|null} tripleFromA - { v1, v2, v3 } arrays alinhados por linha (linha 1 = índice 0)
  */
-export function applyINPCPlanilhaB(workbook, inpcValue, monthYear, tripleFromA = null) {
-  const mesesPt = [
-    'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-    'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
-  ];
-  const indexSheetName = findIndexSheet(workbook);
-  const worksheet = workbook.Sheets[indexSheetName];
+export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
+  try {
+    const mesesPt = [
+      'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+      'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+    ];
+    const [year, month] = monthYear.split('-');
+    const monthIndex = Math.max(0, Math.min(11, parseInt(month, 10) - 1));
+    const monthName = mesesPt[monthIndex];
+    const monthNameCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+    const monthUpper = monthNameCapitalized.toUpperCase();
 
-  if (!worksheet['!ref']) {
-    throw new Error('Aba de índice está vazia');
-  }
-
-  let range = XLSX.utils.decode_range(worksheet['!ref']);
-  const row0MaxC = Math.max(range.e.c, maxColInRow(worksheet, 0));
-
-  let inpcCol = 0;
-  for (let c = 0; c <= row0MaxC; c++) {
-    const headerRef = XLSX.utils.encode_cell({ r: 0, c });
-    const headerCell = worksheet[headerRef];
-    if (headerCell && headerCell.v) {
-      const headerValue = headerCell.v.toString().toLowerCase();
-      if (headerValue.includes('inpc') || headerValue.includes('índice')) {
-        inpcCol = c;
-        break;
-      }
+    const sheetName = findPlanilhaBMainSheetName(workbook);
+    if (!sheetName) {
+      throw new Error('Workbook sem abas');
     }
-  }
-
-  const styleColDQ = worksheet[XLSX.utils.encode_cell({ r: 1, c: COL_DQ })];
-
-  if (tripleFromA && tripleFromA.v1 && tripleFromA.v1.length > 0) {
-    const nRowsA = tripleFromA.v1.length;
-    const cols = [COL_DQ, COL_DR, COL_DS];
-    const arrs = [tripleFromA.v1, tripleFromA.v2, tripleFromA.v3];
-
-    for (let row = 1; row <= nRowsA; row++) {
-      const idx = row - 1;
-      for (let k = 0; k < 3; k++) {
-        const c = cols[k];
-        const ref = XLSX.utils.encode_cell({ r: row, c });
-        const prev = worksheet[ref];
-        const val = arrs[k][idx] ?? 0;
-        worksheet[ref] = {
-          v: val,
-          t: 'n',
-          z: prev?.z || styleColDQ?.z || '#,##0.00'
-        };
-      }
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) {
+      throw new Error('Worksheet não encontrado');
     }
 
-    range.e.r = Math.max(range.e.r, nRowsA);
-    range.e.c = Math.max(range.e.c, COL_DQ, COL_DR, COL_DS);
-  } else {
-    const { de, df, dg } = findColumnsDE_DF_DG([]);
-    for (let row = 1; row <= range.e.r; row++) {
-      const inpcCellRef = XLSX.utils.encode_cell({ r: row, c: inpcCol });
-      const inpcCell = worksheet[inpcCellRef];
-      if (inpcCell) {
-        inpcCell.v = inpcValue;
-        inpcCell.t = 'n';
-      }
-      const baseValue = parseFloat(inpcValue) || 0;
-      const deCellRef = XLSX.utils.encode_cell({ r: row, c: de });
-      const dfCellRef = XLSX.utils.encode_cell({ r: row, c: df });
-      const dgCellRef = XLSX.utils.encode_cell({ r: row, c: dg });
-      if (worksheet[deCellRef]) {
-        worksheet[deCellRef].v = baseValue * 1.0;
-        worksheet[deCellRef].t = 'n';
-      }
-      if (worksheet[dfCellRef]) {
-        worksheet[dfCellRef].v = baseValue * 1.0;
-        worksheet[dfCellRef].t = 'n';
-      }
-      if (worksheet[dgCellRef]) {
-        worksheet[dgCellRef].v = baseValue * 1.0;
-        worksheet[dgCellRef].t = 'n';
-      }
+    let range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+    const dataEndRow = maxUsedRowInSheet(worksheet);
+
+    const inpcValueParsed = parseInpcInput(inpcValue);
+    const multiplier = multiplierFromInpc(
+      Number.isNaN(inpcValueParsed) || inpcValueParsed < 0 ? 1 : inpcValueParsed
+    );
+
+    const headerRow = findValorEstimadoHeaderRow(worksheet, range);
+
+    const headerBI = XLSX.utils.encode_cell({ r: headerRow, c: COL_BI });
+    const headerBJ = XLSX.utils.encode_cell({ r: headerRow, c: COL_BJ });
+    const headerBK = XLSX.utils.encode_cell({ r: headerRow, c: COL_BK });
+
+    const originalHeader1 = String(worksheet[headerBI]?.v || '');
+    const originalHeader2 = String(worksheet[headerBJ]?.v || '');
+    const originalHeader3 = String(worksheet[headerBK]?.v || '');
+
+    const yearStr = String(year);
+    const newHeader1 = buildValorEstimadoHeaderForMonth(originalHeader1, monthUpper, yearStr);
+    const newHeader2 = buildValorEstimadoHeaderForMonth(originalHeader2, monthUpper, yearStr);
+    const newHeader3 = buildValorEstimadoHeaderForMonth(originalHeader3, monthUpper, yearStr);
+
+    const lastTrioEnd = findLastValorEstimadoTrioEndCol(worksheet, headerRow, range);
+    const newCol1 = lastTrioEnd + 1;
+    const newCol2 = lastTrioEnd + 2;
+    const newCol3 = lastTrioEnd + 3;
+
+    worksheet[XLSX.utils.encode_cell({ r: headerRow, c: newCol1 })] = { v: newHeader1, t: 's' };
+    worksheet[XLSX.utils.encode_cell({ r: headerRow, c: newCol2 })] = { v: newHeader2, t: 's' };
+    worksheet[XLSX.utils.encode_cell({ r: headerRow, c: newCol3 })] = { v: newHeader3, t: 's' };
+
+    for (let row = headerRow + 1; row <= dataEndRow; row++) {
+      const ref1 = XLSX.utils.encode_cell({ r: row, c: COL_BI });
+      const ref2 = XLSX.utils.encode_cell({ r: row, c: COL_BJ });
+      const ref3 = XLSX.utils.encode_cell({ r: row, c: COL_BK });
+      const c1 = worksheet[ref1];
+      const c2 = worksheet[ref2];
+      const c3 = worksheet[ref3];
+
+      const val1 = parseCellAsNumber(c1);
+      const val2 = parseCellAsNumber(c2);
+      const val3 = parseCellAsNumber(c3);
+
+      const nv1 = val1 * multiplier;
+      const nv2 = val2 * multiplier;
+      const nv3 = val3 * multiplier;
+
+      worksheet[XLSX.utils.encode_cell({ r: row, c: newCol1 })] = {
+        v: nv1,
+        t: 'n',
+        z: c1?.z || '#,##0.00'
+      };
+      worksheet[XLSX.utils.encode_cell({ r: row, c: newCol2 })] = {
+        v: nv2,
+        t: 'n',
+        z: c2?.z || '#,##0.00'
+      };
+      worksheet[XLSX.utils.encode_cell({ r: row, c: newCol3 })] = {
+        v: nv3,
+        t: 'n',
+        z: c3?.z || '#,##0.00'
+      };
     }
+
+    range.e.r = Math.max(range.e.r, dataEndRow, headerRow);
+    range.e.c = Math.max(range.e.c, newCol3);
+    worksheet['!ref'] = XLSX.utils.encode_range(range);
+
+    const refWidth = worksheet['!cols']?.[COL_BI]?.w || 12;
+    if (!worksheet['!cols']) worksheet['!cols'] = [];
+    [newCol1, newCol2, newCol3].forEach((c) => {
+      if (!worksheet['!cols'][c]) worksheet['!cols'][c] = { w: refWidth };
+    });
+
+    return workbook;
+  } catch (error) {
+    console.error('Erro ao aplicar INPC na Planilha B:', error);
+    throw new Error(`Erro ao processar Planilha B: ${error.message}`);
   }
-
-  const row0ScanC = Math.max(range.e.c, maxColInRow(worksheet, 0));
-  const lastMonthlyCol = findLastMonthlyColumn(worksheet, 0, row0ScanC);
-  const [year, month] = monthYear.split('-');
-  const monthIndex = Math.max(0, Math.min(11, parseInt(month, 10) - 1));
-  const monthName = mesesPt[monthIndex];
-  const monthYearLabel = `${monthName}/${year}`;
-
-  let targetMonthlyCol = null;
-  for (let c = 0; c <= row0ScanC; c++) {
-    const headerRef = XLSX.utils.encode_cell({ r: 0, c });
-    const headerCell = worksheet[headerRef];
-    if (!headerCell || headerCell.v == null) continue;
-    const headerValue = String(headerCell.v).trim().toLowerCase();
-    if (headerValue === monthYearLabel.toLowerCase()) {
-      targetMonthlyCol = c;
-      break;
-    }
-  }
-
-  if (targetMonthlyCol === null) {
-    targetMonthlyCol = range.e.c + 1;
-    worksheet[XLSX.utils.encode_cell({ r: 0, c: targetMonthlyCol })] = { v: monthYearLabel, t: 's' };
-  }
-
-  const inpcForCol = parseInpcInput(inpcValue);
-  const inpcWrite = Number.isNaN(inpcForCol) ? inpcValue : inpcForCol;
-
-  const maxDataRow = Math.max(
-    range.e.r,
-    tripleFromA && tripleFromA.v1 ? tripleFromA.v1.length : 0
-  );
-
-  for (let row = 1; row <= maxDataRow; row++) {
-    const cellRef = XLSX.utils.encode_cell({ r: row, c: targetMonthlyCol });
-    const styleRefCol = lastMonthlyCol !== null ? lastMonthlyCol : inpcCol;
-    const styleRef = XLSX.utils.encode_cell({ r: row, c: styleRefCol });
-    const refCell = worksheet[styleRef];
-    worksheet[cellRef] = {
-      v: inpcWrite,
-      t: 'n',
-      z: refCell?.z || '#,##0.00'
-    };
-  }
-
-  range.e.r = Math.max(range.e.r, maxDataRow);
-  range.e.c = Math.max(range.e.c, targetMonthlyCol);
-  worksheet['!ref'] = XLSX.utils.encode_range(range);
-
-  if (worksheet['!cols']) {
-    const refColWidth = worksheet['!cols'][inpcCol]?.w || 12;
-    if (!worksheet['!cols'][targetMonthlyCol]) {
-      worksheet['!cols'][targetMonthlyCol] = { w: refColWidth };
-    }
-  } else {
-    worksheet['!cols'] = [];
-    worksheet['!cols'][targetMonthlyCol] = { w: 12 };
-  }
-
-  return workbook;
 }
 
 /**
@@ -992,7 +940,8 @@ export async function processarPlanilhasINPC(planilhaAFile, planilhaBFile, inpcV
     const { workbook: workbookB } = await readPlanilhaB(planilhaBFile);
 
     const { workbook: processedA, tripleValues } = applyINPCPlanilhaA(workbookA, inpcValue, monthYear);
-    const processedB = applyINPCPlanilhaB(workbookB, inpcValue, monthYear, tripleValues);
+    void tripleValues;
+    const processedB = applyINPCPlanilhaB(workbookB, inpcValue, monthYear);
 
     if (!processedA || !processedB) {
       throw new Error('Erro ao processar planilhas: workbooks inválidos');
