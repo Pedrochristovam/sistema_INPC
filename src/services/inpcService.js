@@ -1,14 +1,9 @@
 import * as XLSX from 'xlsx';
 
-/** Colunas de referência na Planilha A (VALOR ESTIMADO — BI, BJ, BK) */
+/** Colunas de referência (VALOR ESTIMADO — BI, BJ, BK) nas planilhas A e B */
 const COL_BI = XLSX.utils.decode_col('BI');
 const COL_BJ = XLSX.utils.decode_col('BJ');
 const COL_BK = XLSX.utils.decode_col('BK');
-
-/** Planilha B — destino dos valores calculados na A */
-const COL_DQ = XLSX.utils.decode_col('DQ');
-const COL_DR = XLSX.utils.decode_col('DR');
-const COL_DS = XLSX.utils.decode_col('DS');
 
 /**
  * Normaliza texto/ número digitado (ex.: 0001,0005000 ou 1.234,56) para float.
@@ -454,14 +449,28 @@ function findLastMonthlyColumn(worksheet, startCol, endCol) {
   }
 }
 
+/** Último dia do mês civil (1–12) em yearStr (ex.: abril/2026 → 30). */
+function lastCalendarDayOfMonth(yearStr, month1to12Str) {
+  const y = parseInt(String(yearStr), 10);
+  const m = parseInt(String(month1to12Str), 10);
+  if (Number.isNaN(y) || Number.isNaN(m) || m < 1 || m > 12) return '30';
+  return String(new Date(y, m, 0).getDate());
+}
+
 /**
  * Reconstrói o cabeçalho com o mês/ano selecionados (sempre usa yearStr do formulário, ex.: 2026).
  * Evita regex que falha com "Janeiro", acentos ou variações do Excel.
+ * @param {string|null|undefined} dayOverride - se informado, substitui o dia extraído do cabeçalho antigo (ex.: último dia do mês selecionado).
  */
-function buildValorEstimadoHeaderForMonth(original, monthUpper, yearStr) {
+function buildValorEstimadoHeaderForMonth(original, monthUpper, yearStr, dayOverride = undefined) {
   const o = String(original || '').trim();
   const diaMatch = o.match(/PARA\s+(\d+)\s+DE/i);
-  const dia = diaMatch ? diaMatch[1] : '30';
+  const dia =
+    dayOverride != null && String(dayOverride).trim() !== ''
+      ? String(dayOverride).trim()
+      : diaMatch
+        ? diaMatch[1]
+        : '30';
   const lower = o.toLowerCase();
   if (lower.includes('menor desconto')) {
     return `VALOR ESTIMADO PARA ${dia} DE ${monthUpper} DE ${yearStr} COM O MENOR DESCONTO CONFORME PARAMETROS DA LEI 18.002/2009`;
@@ -500,7 +509,7 @@ function findLastValorEstimadoTrioEndCol(worksheet, headerRow, range) {
 }
 
 /**
- * Aplica o índice INPC na Planilha A: referências fixas BI, BJ, BK; três colunas novas após BK.
+ * Aplica o índice INPC na Planilha A: base = último trio "VALOR ESTIMADO"; três colunas novas após ele.
  * @returns {{ workbook: Object, tripleValues: { v1: number[], v2: number[], v3: number[] } }}
  */
 export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
@@ -514,6 +523,7 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
     const monthName = mesesPt[monthIndex];
     const monthNameCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
     const monthUpper = monthNameCapitalized.toUpperCase();
+    const diaMesSelecionado = lastCalendarDayOfMonth(year, month);
 
     const sheetName = findPlanilhaAMainSheetName(workbook);
     if (!sheetName) {
@@ -535,21 +545,39 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
 
     const headerRow = findValorEstimadoHeaderRow(worksheet, range);
 
-    const headerBI = XLSX.utils.encode_cell({ r: headerRow, c: COL_BI });
-    const headerBJ = XLSX.utils.encode_cell({ r: headerRow, c: COL_BJ });
-    const headerBK = XLSX.utils.encode_cell({ r: headerRow, c: COL_BK });
+    const lastTrioEnd = findLastValorEstimadoTrioEndCol(worksheet, headerRow, range);
+    const baseCol1 = lastTrioEnd - 2;
+    const baseCol2 = lastTrioEnd - 1;
+    const baseCol3 = lastTrioEnd;
 
-    const originalHeader1 = String(worksheet[headerBI]?.v || '');
-    const originalHeader2 = String(worksheet[headerBJ]?.v || '');
-    const originalHeader3 = String(worksheet[headerBK]?.v || '');
+    const headerBase1 = XLSX.utils.encode_cell({ r: headerRow, c: baseCol1 });
+    const headerBase2 = XLSX.utils.encode_cell({ r: headerRow, c: baseCol2 });
+    const headerBase3 = XLSX.utils.encode_cell({ r: headerRow, c: baseCol3 });
+
+    const originalHeader1 = String(worksheet[headerBase1]?.v || '');
+    const originalHeader2 = String(worksheet[headerBase2]?.v || '');
+    const originalHeader3 = String(worksheet[headerBase3]?.v || '');
 
     const yearStr = String(year);
-    const newHeader1 = buildValorEstimadoHeaderForMonth(originalHeader1, monthUpper, yearStr);
-    const newHeader2 = buildValorEstimadoHeaderForMonth(originalHeader2, monthUpper, yearStr);
-    const newHeader3 = buildValorEstimadoHeaderForMonth(originalHeader3, monthUpper, yearStr);
+    const newHeader1 = buildValorEstimadoHeaderForMonth(
+      originalHeader1,
+      monthUpper,
+      yearStr,
+      diaMesSelecionado
+    );
+    const newHeader2 = buildValorEstimadoHeaderForMonth(
+      originalHeader2,
+      monthUpper,
+      yearStr,
+      diaMesSelecionado
+    );
+    const newHeader3 = buildValorEstimadoHeaderForMonth(
+      originalHeader3,
+      monthUpper,
+      yearStr,
+      diaMesSelecionado
+    );
 
-    // Três colunas novas logo após o último trio "VALOR ESTIMADO" da linha (ex.: após DQ/DR/DS), sem alterar BI/BJ/BK
-    const lastTrioEnd = findLastValorEstimadoTrioEndCol(worksheet, headerRow, range);
     const newCol1 = lastTrioEnd + 1;
     const newCol2 = lastTrioEnd + 2;
     const newCol3 = lastTrioEnd + 3;
@@ -563,9 +591,9 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
     const v3 = [];
 
     for (let row = headerRow + 1; row <= dataEndRow; row++) {
-      const ref1 = XLSX.utils.encode_cell({ r: row, c: COL_BI });
-      const ref2 = XLSX.utils.encode_cell({ r: row, c: COL_BJ });
-      const ref3 = XLSX.utils.encode_cell({ r: row, c: COL_BK });
+      const ref1 = XLSX.utils.encode_cell({ r: row, c: baseCol1 });
+      const ref2 = XLSX.utils.encode_cell({ r: row, c: baseCol2 });
+      const ref3 = XLSX.utils.encode_cell({ r: row, c: baseCol3 });
       const c1 = worksheet[ref1];
       const c2 = worksheet[ref2];
       const c3 = worksheet[ref3];
@@ -603,7 +631,8 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
     range.e.c = Math.max(range.e.c, newCol3);
     worksheet['!ref'] = XLSX.utils.encode_range(range);
 
-    const refWidth = worksheet['!cols']?.[COL_BI]?.w || 12;
+    const refWidth =
+      worksheet['!cols']?.[baseCol1]?.w || worksheet['!cols']?.[COL_BI]?.w || 12;
     if (!worksheet['!cols']) worksheet['!cols'] = [];
     [newCol1, newCol2, newCol3].forEach((c) => {
       if (!worksheet['!cols'][c]) worksheet['!cols'][c] = { w: refWidth };
@@ -620,9 +649,7 @@ export function applyINPCPlanilhaA(workbook, inpcValue, monthYear) {
 }
 
 /**
- * Encontra a aba "Índice Mensal INPC" na planilha B
- * @param {Object} workbook - Workbook da planilha B
- * @returns {String} - Nome da aba encontrada
+ * Escolhe a aba da Planilha B que contém BI–BK (prioriza nome com “mapeamento” / “planilha b”).
  */
 function findPlanilhaBMainSheetName(workbook) {
   if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
@@ -662,8 +689,7 @@ function findColumnsDE_DF_DG(headers) {
 }
 
 /**
- * Aplica valores na Planilha B: aba "Índice Mensal INPC", colunas DQ/DR/DS com os resultados da Planilha A.
- * @param {Object|null} tripleFromA - { v1, v2, v3 } arrays alinhados por linha (linha 1 = índice 0)
+ * Aplica o índice INPC na Planilha B: mesma lógica da A (base = último trio VALOR ESTIMADO).
  */
 export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
   try {
@@ -676,6 +702,7 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
     const monthName = mesesPt[monthIndex];
     const monthNameCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
     const monthUpper = monthNameCapitalized.toUpperCase();
+    const diaMesSelecionado = lastCalendarDayOfMonth(year, month);
 
     const sheetName = findPlanilhaBMainSheetName(workbook);
     if (!sheetName) {
@@ -696,20 +723,39 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
 
     const headerRow = findValorEstimadoHeaderRow(worksheet, range);
 
-    const headerBI = XLSX.utils.encode_cell({ r: headerRow, c: COL_BI });
-    const headerBJ = XLSX.utils.encode_cell({ r: headerRow, c: COL_BJ });
-    const headerBK = XLSX.utils.encode_cell({ r: headerRow, c: COL_BK });
+    const lastTrioEnd = findLastValorEstimadoTrioEndCol(worksheet, headerRow, range);
+    const baseCol1 = lastTrioEnd - 2;
+    const baseCol2 = lastTrioEnd - 1;
+    const baseCol3 = lastTrioEnd;
 
-    const originalHeader1 = String(worksheet[headerBI]?.v || '');
-    const originalHeader2 = String(worksheet[headerBJ]?.v || '');
-    const originalHeader3 = String(worksheet[headerBK]?.v || '');
+    const headerBase1 = XLSX.utils.encode_cell({ r: headerRow, c: baseCol1 });
+    const headerBase2 = XLSX.utils.encode_cell({ r: headerRow, c: baseCol2 });
+    const headerBase3 = XLSX.utils.encode_cell({ r: headerRow, c: baseCol3 });
+
+    const originalHeader1 = String(worksheet[headerBase1]?.v || '');
+    const originalHeader2 = String(worksheet[headerBase2]?.v || '');
+    const originalHeader3 = String(worksheet[headerBase3]?.v || '');
 
     const yearStr = String(year);
-    const newHeader1 = buildValorEstimadoHeaderForMonth(originalHeader1, monthUpper, yearStr);
-    const newHeader2 = buildValorEstimadoHeaderForMonth(originalHeader2, monthUpper, yearStr);
-    const newHeader3 = buildValorEstimadoHeaderForMonth(originalHeader3, monthUpper, yearStr);
+    const newHeader1 = buildValorEstimadoHeaderForMonth(
+      originalHeader1,
+      monthUpper,
+      yearStr,
+      diaMesSelecionado
+    );
+    const newHeader2 = buildValorEstimadoHeaderForMonth(
+      originalHeader2,
+      monthUpper,
+      yearStr,
+      diaMesSelecionado
+    );
+    const newHeader3 = buildValorEstimadoHeaderForMonth(
+      originalHeader3,
+      monthUpper,
+      yearStr,
+      diaMesSelecionado
+    );
 
-    const lastTrioEnd = findLastValorEstimadoTrioEndCol(worksheet, headerRow, range);
     const newCol1 = lastTrioEnd + 1;
     const newCol2 = lastTrioEnd + 2;
     const newCol3 = lastTrioEnd + 3;
@@ -719,9 +765,9 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
     worksheet[XLSX.utils.encode_cell({ r: headerRow, c: newCol3 })] = { v: newHeader3, t: 's' };
 
     for (let row = headerRow + 1; row <= dataEndRow; row++) {
-      const ref1 = XLSX.utils.encode_cell({ r: row, c: COL_BI });
-      const ref2 = XLSX.utils.encode_cell({ r: row, c: COL_BJ });
-      const ref3 = XLSX.utils.encode_cell({ r: row, c: COL_BK });
+      const ref1 = XLSX.utils.encode_cell({ r: row, c: baseCol1 });
+      const ref2 = XLSX.utils.encode_cell({ r: row, c: baseCol2 });
+      const ref3 = XLSX.utils.encode_cell({ r: row, c: baseCol3 });
       const c1 = worksheet[ref1];
       const c2 = worksheet[ref2];
       const c3 = worksheet[ref3];
@@ -755,7 +801,8 @@ export function applyINPCPlanilhaB(workbook, inpcValue, monthYear) {
     range.e.c = Math.max(range.e.c, newCol3);
     worksheet['!ref'] = XLSX.utils.encode_range(range);
 
-    const refWidth = worksheet['!cols']?.[COL_BI]?.w || 12;
+    const refWidth =
+      worksheet['!cols']?.[baseCol1]?.w || worksheet['!cols']?.[COL_BI]?.w || 12;
     if (!worksheet['!cols']) worksheet['!cols'] = [];
     [newCol1, newCol2, newCol3].forEach((c) => {
       if (!worksheet['!cols'][c]) worksheet['!cols'][c] = { w: refWidth };
